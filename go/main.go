@@ -1,19 +1,34 @@
 package main
 
 import (
-	"fmt"
+	"log"
+	"net/http"
 	"os"
 )
 
+type RequestContext struct {
+	index_html_file []byte
+}
+
+func (rc *RequestContext) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	w.Write(rc.index_html_file)
+}
+
 func main() {
-	println("Hello!!!")
+	if index_html_file, err := os.ReadFile("../index.html"); err == nil {
+		rc := &RequestContext{index_html_file: index_html_file}
+		http.Handle("/", rc)
+		log.Fatal(http.ListenAndServe("", nil))
+	} else {
+		fatal("Error starting up server %v", err)
+	}
+
 }
 
 func println(f string, args ...any) {
-	fmt.Printf(f+"\n", args...)
+	log.Printf(f+"\n", args...)
 }
 
 func fatal(f string, args ...any) {
-	println(f, args...)
-	os.Exit(1)
+	log.Fatalf(f, args...)
 }

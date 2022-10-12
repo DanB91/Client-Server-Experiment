@@ -12,7 +12,7 @@ import (
 )
 
 type ServerState struct {
-	chat_messages []ChatMessage
+	chat_messages RingBuffer[ChatMessage]
 	lock          sync.RWMutex
 }
 type ChatMessage struct {
@@ -34,7 +34,7 @@ func main() {
 func start_server() {
 	ctx := context.Background()
 	server_state = ServerState{
-		chat_messages: make([]ChatMessage, 0, 256),
+		chat_messages: NewRingBuffer[ChatMessage](256),
 	}
 	cancel_ctx, cancel := context.WithCancel(ctx)
 
@@ -68,7 +68,7 @@ func start_service(ctx context.Context) {
 			println("Error accepting input connection: %v", err)
 			continue
 		}
-		conn.SetDeadline(time.Now().Add(5 * time.Second))
+		conn.SetDeadline(time.Now().Add(5 * time.Minute))
 
 		var command Command
 		{
@@ -96,7 +96,7 @@ func get_chat_command_handler(ctx context.Context, connection_chan <-chan net.Co
 			if !ok {
 				return
 			}
-			write(conn, []byte(messages_to_string()))
+			write_string(conn, messages_to_string())
 			conn.Close()
 		case <-ctx.Done():
 			return
@@ -125,7 +125,7 @@ func post_message_command_handler(ctx context.Context, connection_chan <-chan ne
 			message := ChatMessage{username: username, message: message_string}
 
 			server_state.lock.Lock()
-			server_state.chat_messages = append(server_state.chat_messages, message)
+			server_state.chat_messages.Put(message)
 			server_state.lock.Unlock()
 		case <-ctx.Done():
 			return
@@ -137,7 +137,12 @@ func messages_to_string() string {
 	defer server_state.lock.RUnlock()
 
 	builder := strings.Builder{}
-	for _, message := range server_state.chat_messages {
+	it := server_state.chat_messages.Iterator()
+	for {
+		message, has_value := it()
+		if !has_value {
+			break
+		}
 		builder.WriteString(fmt.Sprintf("%v: %v\n", message.username, message.message))
 	}
 	return builder.String()
@@ -171,7 +176,7 @@ func read(conn net.Conn, data []byte) (has_data bool, delete_connection bool) {
 			delete_connection = false
 			return
 		}
-		println("Error reading input connection %v", err)
+		println("Error reading from connection %v", err)
 		delete_connection = true
 		has_data = false
 		return
@@ -184,11 +189,24 @@ func read(conn net.Conn, data []byte) (has_data bool, delete_connection bool) {
 func write(conn net.Conn, data []byte) (delete_connection bool) {
 	n, err := conn.Write(data)
 	if err != nil {
-		println("Error reading input connection %v", err)
+		println("Error writing to connection %v", err)
 		delete_connection = true
 		return
 	}
 	assert(n == len(data), "Wrong number of bytes written Expected: %v, was: %v", data, n)
+	delete_connection = false
+	return
+}
+func write_string(conn net.Conn, value string) (delete_connection bool) {
+	string_len_bytes := [STRING_LEN_SIZE]byte{}
+	binary.LittleEndian.PutUint64(string_len_bytes[:], uint64(len(value)))
+	if delete_connection = write(conn, string_len_bytes[:]); delete_connection {
+		return
+	}
+	if delete_connection = write(conn, []byte(value)); delete_connection {
+		return
+	}
+
 	delete_connection = false
 	return
 }

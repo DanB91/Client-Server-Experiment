@@ -1,0 +1,18 @@
+Knobs:
+
+    Clients:
+    - How many clients
+    - How many of each request per second
+    - How long the message is
+    - How long the username is
+
+    Server:
+    - How many entries in channel/work queue
+    - How many threads per command handler
+    - Size of the circular buffer of messages
+
+Dimensions:
+    - Latency in terms of time and count between posting a message and having it show up
+    - How long each type of request takes
+    - Server memory usage
+    - Server time per request

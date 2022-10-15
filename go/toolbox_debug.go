@@ -71,7 +71,7 @@ func IsPowerOf2[T Integer](n T) bool {
 	return (n & (n - 1)) == 0
 }
 
-func println(f string, args ...any) {
+func printfln(f string, args ...any) {
 	log.Printf(f+"\n", args...)
 }
 

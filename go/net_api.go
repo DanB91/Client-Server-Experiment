@@ -5,7 +5,7 @@ import "fmt"
 type Command uint64
 
 const (
-	PORT = 54321
+	PORT = 54320
 
 	COMMAND_SIZE = 8
 

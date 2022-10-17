@@ -27,19 +27,22 @@ const (
 )
 
 var (
-	server_state ServerState
+	global_server_state ServerState
 )
 
 func main() {
 	nclients := 50
-	requests_per_second := 60
+	requests_per_second := 0 //clients send requests as fast as they can
 
 	ctx := context.Background()
 	cancel_server_context, cancel_server := context.WithCancel(ctx)
 	cancel_client_context, cancel_client := context.WithCancel(ctx)
 	end_stats_chan := make(chan Stats, nclients)
 
-	start_server(cancel_server_context)
+	global_server_state = ServerState{
+		chat_messages: NewRingBuffer[ChatMessage](256),
+	}
+	go start_server(cancel_server_context)
 	run_clients(nclients, requests_per_second, cancel_client_context, end_stats_chan)
 
 	<-time.After(30 * time.Second)
@@ -55,14 +58,6 @@ func main() {
 	cancel_server()
 }
 func start_server(ctx context.Context) {
-	server_state = ServerState{
-		chat_messages: NewRingBuffer[ChatMessage](256),
-	}
-
-	go start_service(ctx)
-
-}
-func start_service(ctx context.Context) {
 	listener, err := net.Listen("tcp", ADDRESS)
 	if err != nil {
 		fatal("Error starting up input listener %v", err)
@@ -79,6 +74,7 @@ func start_service(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			printfln("Server shutting down!")
 			return
 		default:
 		}
@@ -90,8 +86,8 @@ func start_service(ctx context.Context) {
 		}
 		conn.SetDeadline(time.Now().Add(5 * time.Minute))
 
-		server_state.num_open_connections.Add(1)
-		printfln("Opening connection from server... open conns: %v", server_state.num_open_connections.Load())
+		global_server_state.num_open_connections.Add(1)
+		printfln("Opening connection from server. Open conns: %v", global_server_state.num_open_connections.Load())
 		var command Command
 		{
 			command_data := [COMMAND_SIZE]byte{}
@@ -147,9 +143,9 @@ func post_message_command_handler(ctx context.Context, connection_chan <-chan ne
 
 			message := ChatMessage{username: username, message: message_string}
 
-			server_state.lock.Lock()
-			server_state.chat_messages.Put(message)
-			server_state.lock.Unlock()
+			global_server_state.lock.Lock()
+			global_server_state.chat_messages.Put(message)
+			global_server_state.lock.Unlock()
 		case <-ctx.Done():
 			return
 		}
@@ -158,18 +154,18 @@ func post_message_command_handler(ctx context.Context, connection_chan <-chan ne
 func close_conn(conn net.Conn) {
 	err := conn.Close()
 	if err == nil {
-		server_state.num_open_connections.Add(-1)
-		printfln("closing connection from server... open conns %v", server_state.num_open_connections.Load())
+		global_server_state.num_open_connections.Add(-1)
+		printfln("Closing connection from server. Open conns: %v", global_server_state.num_open_connections.Load())
 	} else {
 		printfln("Error closing connection: %v", err)
 	}
 }
 func messages_to_string() string {
-	server_state.lock.RLock()
-	defer server_state.lock.RUnlock()
+	global_server_state.lock.RLock()
+	defer global_server_state.lock.RUnlock()
 
 	builder := strings.Builder{}
-	it := server_state.chat_messages.Iterator()
+	it := global_server_state.chat_messages.Iterator()
 	for {
 		message, has_value := it()
 		if !has_value {

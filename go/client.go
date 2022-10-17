@@ -120,12 +120,12 @@ func connect_to_server() net.Conn {
 		log.Panicf("Failed to connect to server: %v", err)
 	}
 	connections_open.Add(1)
-	printfln("Opening connection from client: %v", connections_open.Load())
+	printfln("Opening connection from client. Open conns: %v", connections_open.Load())
 	return conn
 }
 
 func close_server_connection(conn net.Conn) {
 	conn.Close()
 	connections_open.Add(-1)
-	printfln("Closing connection from client: %v", connections_open.Load())
+	printfln("Closing connection from client. Open conns: %v", connections_open.Load())
 }

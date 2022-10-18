@@ -62,13 +62,6 @@ func start_server(ctx context.Context) {
 	if err != nil {
 		fatal("Error starting up input listener %v", err)
 	}
-	get_chat_command_chan := make(chan net.Conn, 128)
-	defer close(get_chat_command_chan)
-	post_message_command_chan := make(chan net.Conn, 128)
-	defer close(post_message_command_chan)
-
-	go get_chat_command_handler(ctx, get_chat_command_chan)
-	go post_message_command_handler(ctx, post_message_command_chan)
 
 	defer listener.Close()
 	for {
@@ -85,71 +78,51 @@ func start_server(ctx context.Context) {
 			continue
 		}
 		conn.SetDeadline(time.Now().Add(5 * time.Minute))
-
-		global_server_state.num_open_connections.Add(1)
-		printfln("Opening connection from server. Open conns: %v", global_server_state.num_open_connections.Load())
-		var command Command
-		{
-			command_data := [COMMAND_SIZE]byte{}
-			has_data, _ := read(conn, command_data[:])
-			if !has_data {
-				close_conn(conn)
-				continue
-			}
-			command = Command(binary.LittleEndian.Uint64(command_data[:]))
-		}
-		switch command {
-		case CMD_GET_CHAT:
-			get_chat_command_chan <- conn
-		case CMD_POST_MESSAGE:
-			post_message_command_chan <- conn
-		}
+		go handle_connection(conn)
 
 	}
 }
-func get_chat_command_handler(ctx context.Context, connection_chan <-chan net.Conn) {
-	for {
-		select {
-		case conn, ok := <-connection_chan:
-			if !ok {
-				return
-			}
-			write_string(conn, messages_to_string())
-			close_conn(conn)
+func handle_connection(conn net.Conn) {
+	defer close_conn(conn)
 
-		case <-ctx.Done():
+	global_server_state.num_open_connections.Add(1)
+
+	printfln("Opening connection from server. Open conns: %v", global_server_state.num_open_connections.Load())
+	var command Command
+	{
+		command_data := [COMMAND_SIZE]byte{}
+		has_data, _ := read(conn, command_data[:])
+		if !has_data {
 			return
 		}
+		command = Command(binary.LittleEndian.Uint64(command_data[:]))
 	}
+	switch command {
+	case CMD_GET_CHAT:
+		get_chat_command_handler(conn)
+	case CMD_POST_MESSAGE:
+		post_message_command_handler(conn)
+	}
+
 }
-func post_message_command_handler(ctx context.Context, connection_chan <-chan net.Conn) {
-	for {
-		select {
-		case conn, ok := <-connection_chan:
-			if !ok {
-				return
-			}
-			username, has_data, delete_connection := read_string(conn)
-			if !has_data || delete_connection {
-				close_conn(conn)
-				continue
-			}
-			message_string, has_data, delete_connection := read_string(conn)
-			if !has_data || delete_connection {
-				close_conn(conn)
-				continue
-			}
-			close_conn(conn)
-
-			message := ChatMessage{username: username, message: message_string}
-
-			global_server_state.lock.Lock()
-			global_server_state.chat_messages.Put(message)
-			global_server_state.lock.Unlock()
-		case <-ctx.Done():
-			return
-		}
+func get_chat_command_handler(conn net.Conn) {
+	write_string(conn, messages_to_string())
+}
+func post_message_command_handler(conn net.Conn) {
+	username, has_data, delete_connection := read_string(conn)
+	if !has_data || delete_connection {
+		return
 	}
+	message_string, has_data, delete_connection := read_string(conn)
+	if !has_data || delete_connection {
+		return
+	}
+
+	message := ChatMessage{username: username, message: message_string}
+
+	global_server_state.lock.Lock()
+	global_server_state.chat_messages.Put(message)
+	global_server_state.lock.Unlock()
 }
 func close_conn(conn net.Conn) {
 	err := conn.Close()

@@ -17,6 +17,14 @@ type Stats struct {
 var connections_open atomic.Int64
 
 func run_clients(nclients, requests_per_second int, ctx context.Context, end_stats_chan chan<- Stats) {
+	//wait for server to come up
+	for {
+		conn, err := net.Dial("tcp", ADDRESS)
+		if err == nil {
+			conn.Close()
+			break
+		}
+	}
 	if requests_per_second > 0 {
 		printfln("Running %v clients at %v requests a second each...", nclients, requests_per_second)
 	} else {
